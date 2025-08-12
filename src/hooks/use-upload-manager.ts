@@ -2,6 +2,9 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import axios, { AxiosProgressEvent } from 'axios';
 import { UploadFile, UploadResult, UploadManagerConfig, UploadProgress, UploadStatus } from '@/types/upload';
 
+// Client-side timeout (prevents indefinite "Uploading..." when upstream hangs)
+const DEFAULT_UPLOAD_TIMEOUT_MS = 120000; // 2 minutes
+
 // Get configuration from environment or use defaults
 const getDefaultConfig = async (): Promise<UploadManagerConfig> => {
   try {
@@ -13,7 +16,7 @@ const getDefaultConfig = async (): Promise<UploadManagerConfig> => {
         maxFileSize: parseInt(config.maxFileSize) || 256 * 1024 * 1024,
         allowedTypes: config.allowedTypes || ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic'],
         concurrency: 3,
-        uploadEndpoint: config.webhookUrl || 'https://primary-production-903a.up.railway.app/webhook/ce39975d-f592-43d2-9680-76dd8f26af23',
+        uploadEndpoint: config.webhookUrl || '/upload',
       };
     }
   } catch (error) {
@@ -26,7 +29,7 @@ const getDefaultConfig = async (): Promise<UploadManagerConfig> => {
     maxFileSize: 256 * 1024 * 1024, // 256MB
     allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic'],
     concurrency: 3,
-    uploadEndpoint: 'https://primary-production-903a.up.railway.app/webhook/ce39975d-f592-43d2-9680-76dd8f26af23',
+    uploadEndpoint: '/upload',
   };
 };
 
@@ -36,7 +39,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
     maxFileSize: 256 * 1024 * 1024,
     allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic'],
     concurrency: 3,
-    uploadEndpoint: 'https://primary-production-903a.up.railway.app/webhook/ce39975d-f592-43d2-9680-76dd8f26af23',
+    uploadEndpoint: '/upload',
     ...config
   });
   const [files, setFiles] = useState<UploadFile[]>([]);
@@ -68,7 +71,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
 
   const calculateETA = (uploadFile: UploadFile): number => {
     if (!uploadFile.startTime || uploadFile.progress === 0) return 0;
-    
+
     const elapsed = (Date.now() - uploadFile.startTime) / 1000;
     const rate = uploadFile.progress / elapsed;
     const remaining = 100 - uploadFile.progress;
@@ -86,7 +89,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
   }, []);
 
   const updateFileStatus = useCallback((id: string, status: UploadStatus, error?: string, uploadedUrl?: string) => {
-    setFiles(prev => prev.map(file => 
+    setFiles(prev => prev.map(file =>
       file.id === id ? { ...file, status, error, uploadedUrl } : file
     ));
 
@@ -125,6 +128,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
           'Content-Type': 'multipart/form-data',
         },
         signal: abortController.signal,
+        timeout: DEFAULT_UPLOAD_TIMEOUT_MS,
         onUploadProgress: (progressEvent: AxiosProgressEvent) => {
           if (progressEvent.total) {
             const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -136,9 +140,11 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
       // Assuming the webhook returns a URL or file info
       const uploadedUrl = response.data?.url || response.data?.file_url || URL.createObjectURL(uploadFile.file);
       updateFileStatus(uploadFile.id, 'success', undefined, uploadedUrl);
-    } catch (error) {
+    } catch (error: any) {
       if (axios.isCancel(error)) {
         updateFileStatus(uploadFile.id, 'cancelled');
+      } else if (error?.code === 'ECONNABORTED') {
+        updateFileStatus(uploadFile.id, 'error', 'Upload timed out');
       } else {
         updateFileStatus(uploadFile.id, 'error', error instanceof Error ? error.message : 'Upload failed');
       }
@@ -150,7 +156,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
 
   const processQueue = useCallback(() => {
     const availableSlots = finalConfig.concurrency - activeUploadsRef.current.size;
-    const pendingFiles = uploadQueueRef.current.filter(file => 
+    const pendingFiles = uploadQueueRef.current.filter(file =>
       file.status === 'pending' && !activeUploadsRef.current.has(file.id)
     );
 
@@ -195,7 +201,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
     if (newFiles.length > 0) {
       setFiles(prev => [...prev, ...newFiles]);
       uploadQueueRef.current = [...uploadQueueRef.current, ...newFiles];
-      
+
       // Auto-start uploads
       setTimeout(processQueue, 100);
     }
@@ -218,19 +224,19 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
   const retryFile = useCallback((id: string) => {
     const file = files.find(f => f.id === id);
     if (file) {
-      const resetFile = { 
-        ...file, 
-        status: 'pending' as UploadStatus, 
-        progress: 0, 
-        eta: 0, 
+      const resetFile = {
+        ...file,
+        status: 'pending' as UploadStatus,
+        progress: 0,
+        eta: 0,
         error: undefined,
         abortController: undefined,
         startTime: undefined,
       };
-      
+
       setFiles(prev => prev.map(f => f.id === id ? resetFile : f));
       uploadQueueRef.current = uploadQueueRef.current.map(f => f.id === id ? resetFile : f);
-      
+
       setTimeout(processQueue, 100);
     }
   }, [files, processQueue]);
@@ -241,7 +247,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
         file.abortController.abort();
       }
     });
-    
+
     setFiles([]);
     setResults([]);
     uploadQueueRef.current = [];
@@ -253,7 +259,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
     const completedFiles = files.filter(f => f.status === 'success').length;
     const failedFiles = files.filter(f => f.status === 'error').length;
     const uploadingFiles = files.filter(f => f.status === 'uploading');
-    
+
     let overallProgress = 0;
     if (totalFiles > 0) {
       const completedProgress = completedFiles * 100;
@@ -272,7 +278,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
 
   const getResults = useCallback((): Promise<UploadResult[]> => {
     return new Promise((resolve) => {
-      const successfulResults = results.filter(result => 
+      const successfulResults = results.filter(result =>
         files.find(f => f.id === result.id)?.status === 'success'
       );
       resolve(successfulResults);
