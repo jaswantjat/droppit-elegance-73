@@ -138,7 +138,8 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
 
       // ✅ Add ALL files to the SAME FormData (key insight from your diagnosis)
       pendingFiles.forEach((uploadFile) => {
-        formData.append('files', uploadFile.file);  // Same key for all files
+        // Use 'file' as the field name for each file; many webhooks expect this
+        formData.append('file', uploadFile.file);
       });
 
       // Add batch metadata for idempotency and tracking
@@ -196,16 +197,47 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
     } catch (error: any) {
       console.error('❌ Batch upload failed:', error);
 
-      // Handle errors for all files in the batch
-      pendingFiles.forEach(file => {
-        if (axios.isCancel(error)) {
-          updateFileStatus(file.id, 'cancelled');
-        } else if (error?.code === 'ECONNABORTED') {
-          updateFileStatus(file.id, 'error', 'Upload timed out');
-        } else {
-          updateFileStatus(file.id, 'error', error instanceof Error ? error.message : 'Upload failed');
+      // Fallback: try uploading files one-by-one (some webhooks don't accept multi-file form)
+      try {
+        for (const file of pendingFiles) {
+          const perFileForm = new FormData();
+          perFileForm.append('file', file.file);
+          perFileForm.append('path', 'ce39975d-f592-43d2-9680-76dd8f26af23');
+
+          const idKey = `${batchId}:${file.id}`;
+          await axios.post(finalConfig.uploadEndpoint!, perFileForm, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+              'Idempotency-Key': idKey,
+            },
+            timeout: DEFAULT_UPLOAD_TIMEOUT_MS,
+            onUploadProgress: (evt: AxiosProgressEvent) => {
+              if (evt.total) {
+                const p = Math.round((evt.loaded * 100) / evt.total);
+                updateFileProgress(file.id, p);
+              }
+            },
+          }).then((resp) => {
+            const result = resp.data?.result || resp.data;
+            const uploadedUrl = result?.url || result?.file_url || URL.createObjectURL(file.file);
+            updateFileStatus(file.id, 'success', undefined, uploadedUrl);
+          }).catch((err) => {
+            const msg = err?.response?.data?.error || (err instanceof Error ? err.message : 'Upload failed');
+            updateFileStatus(file.id, 'error', msg);
+          });
         }
-      });
+      } catch (fallbackErr) {
+        console.error('❌ Fallback single-file uploads failed:', fallbackErr);
+        pendingFiles.forEach(file => {
+          if (axios.isCancel(error)) {
+            updateFileStatus(file.id, 'cancelled');
+          } else if (error?.code === 'ECONNABORTED') {
+            updateFileStatus(file.id, 'error', 'Upload timed out');
+          } else {
+            updateFileStatus(file.id, 'error', error instanceof Error ? error.message : 'Upload failed');
+          }
+        });
+      }
     } finally {
       // Clean up active uploads tracking
       pendingFiles.forEach(file => {
@@ -255,8 +287,10 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
       setFiles(prev => [...prev, ...newFiles]);
       uploadQueueRef.current = [...uploadQueueRef.current, ...newFiles];
 
-      // ❌ REMOVED: Auto-start uploads - now requires explicit user action
-      // setTimeout(processQueue, 100);
+      // ✅ AUTO-UPLOAD: Start batch upload immediately when files are added
+      setTimeout(() => {
+        startBatchUpload();
+      }, 100);
     }
 
     return { addedFiles: newFiles.length, errors };

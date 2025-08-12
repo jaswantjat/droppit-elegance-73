@@ -37,38 +37,12 @@ export default function UploadInterface() {
     clearAll,
     getProgress,
     getResults,
-    startBatchUpload, // ✅ NEW: Explicit upload trigger
     config,
   } = useUploadManager();
 
   const progress = getProgress();
 
-  // ✅ NEW: Explicit upload handler - only triggered by button click
-  const handleUploadClick = useCallback(async () => {
-    const pendingFiles = files.filter(f => f.status === 'pending');
-    if (pendingFiles.length === 0) {
-      toast({
-        title: t.noFiles,
-        description: t.noFilesDescription,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      await startBatchUpload();
-      toast({
-        title: t.uploadStarted || "Upload Started",
-        description: `${pendingFiles.length} files are being uploaded in a single batch`,
-      });
-    } catch (error) {
-      toast({
-        title: t.uploadFailed,
-        description: error instanceof Error ? error.message : "Upload failed",
-        variant: "destructive",
-      });
-    }
-  }, [files, startBatchUpload, toast, t]);
+  // ✅ AUTO-UPLOAD: Files upload automatically when added, no manual trigger needed
 
   const onFiles = useCallback((fileList: FileList | null) => {
     if (!fileList) return;
@@ -86,7 +60,7 @@ export default function UploadInterface() {
     if (result.addedFiles > 0) {
       toast({
         title: t.filesAdded,
-        description: `${result.addedFiles} ${t.filesAddedDescription}`,
+        description: `${result.addedFiles} ${t.filesAddedDescription} - uploading automatically`,
       });
     }
   }, [addFiles, toast, t]);
@@ -357,26 +331,20 @@ export default function UploadInterface() {
           </div>
         )}
 
-        {/* Upload Action Buttons */}
-        <div className="mt-6 flex justify-center gap-3">
-          {/* ✅ NEW: Explicit Upload Button - triggers batch upload */}
-          <Button
-            variant="cta"
-            size="lg"
-            onClick={handleUploadClick}
-            disabled={progress.isUploading || files.filter(f => f.status === 'pending').length === 0}
-            className="px-8"
-          >
-            {progress.isUploading
-              ? `${t.uploading}...`
-              : `${t.upload} ${files.filter(f => f.status === 'pending').length} Files`
-            }
-          </Button>
+        {/* Auto-Upload Status */}
+        {progress.isUploading && (
+          <div className="mt-6 text-center">
+            <div className="text-sm text-muted-foreground mb-2">
+              {t.uploading}... Files upload automatically when added
+            </div>
+          </div>
+        )}
 
-          {/* Attach Files Button - only shows after successful uploads */}
-          {progress.completedFiles > 0 && (
+        {/* Attach Files Button - only shows after successful uploads */}
+        {progress.completedFiles > 0 && (
+          <div className="mt-6 flex justify-center">
             <Button
-              variant="outline"
+              variant="cta"
               size="lg"
               onClick={handleAttachFiles}
               disabled={progress.isUploading}
@@ -384,8 +352,8 @@ export default function UploadInterface() {
             >
               {`${t.attachFiles} (${progress.completedFiles})`}
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

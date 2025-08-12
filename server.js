@@ -49,34 +49,75 @@ app.post('/upload', async (req, res) => {
 
   try {
     console.log(`📤 Proxying upload to: ${upstream}`);
+    console.log(`📋 Request headers:`, {
+      'content-type': req.headers['content-type'],
+      'content-length': req.headers['content-length'],
+      'idempotency-key': req.headers['idempotency-key'],
+      'user-agent': req.headers['user-agent']
+    });
 
-    // Check if this is a batch upload by examining the request
+    // Test webhook accessibility first
+    console.log(`🔍 Testing webhook accessibility...`);
+    try {
+      const testResponse = await fetch(upstream.replace('/webhook/', '/health'), {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000)
+      });
+      console.log(`🏥 Health check status: ${testResponse.status}`);
+    } catch (healthErr) {
+      console.log(`⚠️ Health check failed:`, healthErr.message);
+    }
+
+    // NOTE: We forward the raw request stream for multipart/form-data to preserve boundaries
     const contentType = req.headers['content-type'] || '';
-    const isBatchUpload = contentType.includes('multipart/form-data');
+    const isMultipart = contentType.includes('multipart/form-data');
 
-    if (isBatchUpload) {
-      console.log(`📦 Batch upload detected`);
+    console.log(`🚀 Sending ${isMultipart ? 'multipart' : 'regular'} request to webhook...`);
+
+    // For multipart requests, we need to collect and forward the body properly
+    let requestBody;
+    if (isMultipart) {
+      // Collect the request body as a buffer
+      const chunks = [];
+      for await (const chunk of req) {
+        chunks.push(chunk);
+      }
+      requestBody = Buffer.concat(chunks);
+      console.log(`📦 Collected multipart body: ${requestBody.length} bytes`);
+    } else {
+      requestBody = req;
     }
 
     const response = await fetch(upstream, {
       method: 'POST',
-      // Forward content-type so boundary is preserved
       headers: {
         'content-type': contentType || 'application/octet-stream',
-        'x-batch-upload': isBatchUpload ? 'true' : 'false', // Add batch indicator for webhook
-        'idempotency-key': req.headers['idempotency-key'] || '', // ✅ Forward idempotency key
+        'content-length': isMultipart ? requestBody.length.toString() : req.headers['content-length'],
+        'x-batch-upload': isMultipart ? 'true' : 'false',
+        'idempotency-key': req.headers['idempotency-key'] || '',
+        'user-agent': 'UploadProxy/1.0',
       },
-      body: req as any,
+      body: requestBody,
       signal: controller.signal,
     });
+
+    console.log(`📥 Webhook response status: ${response.status} ${response.statusText}`);
+    console.log(`📥 Webhook response headers:`, Object.fromEntries(response.headers.entries()));
 
     const responseContentType = response.headers.get('content-type') || 'application/json';
     res.status(response.status);
     res.setHeader('content-type', responseContentType);
     const text = await response.text();
 
+    // Log response details for debugging
+    if (!response.ok) {
+      console.log(`❌ Webhook error ${response.status}:`, text.substring(0, 500));
+    } else {
+      console.log(`✅ Webhook success:`, text.substring(0, 200));
+    }
+
     // For batch uploads, ensure we return a proper response format
-    if (isBatchUpload && response.ok) {
+    if (isMultipart && response.ok) {
       try {
         const parsedResponse = JSON.parse(text);
         // If the webhook doesn't return an array for batch uploads, create a compatible response
@@ -99,7 +140,7 @@ app.post('/upload', async (req, res) => {
     } else {
       res.send(text);
     }
-  } catch (err: any) {
+  } catch (err) {
     if (err?.name === 'AbortError') {
       res.status(504).json({ error: 'Upstream timeout', message: 'Upload timed out' });
     } else {
@@ -133,6 +174,55 @@ app.get('/api/config', (req, res) => {
     enableBatching: process.env.ENABLE_BATCHING !== 'false', // Enable by default
     batchSize: parseInt(process.env.BATCH_SIZE || '5'), // Default batch size of 5
   });
+});
+
+// Test endpoint to directly test webhook connectivity
+app.get('/api/test-webhook', async (req, res) => {
+  const upstream = process.env.WEBHOOK_URL || 'https://primary-production-903a.up.railway.app/webhook/ce39975d-f592-43d2-9680-76dd8f26af23';
+
+  try {
+    console.log(`🧪 Testing webhook connectivity: ${upstream}`);
+
+    // Test 1: Basic connectivity
+    const testResponse = await fetch(upstream, {
+      method: 'GET',
+      signal: AbortSignal.timeout(10000)
+    });
+
+    console.log(`🧪 GET test status: ${testResponse.status}`);
+    const getBody = await testResponse.text();
+    console.log(`🧪 GET response:`, getBody.substring(0, 200));
+
+    // Test 2: POST with minimal data
+    const postResponse = await fetch(upstream, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ test: true, path: 'ce39975d-f592-43d2-9680-76dd8f26af23' }),
+      signal: AbortSignal.timeout(10000)
+    });
+
+    console.log(`🧪 POST test status: ${postResponse.status}`);
+    const postBody = await postResponse.text();
+    console.log(`🧪 POST response:`, postBody.substring(0, 200));
+
+    res.json({
+      success: true,
+      tests: {
+        get: { status: testResponse.status, body: getBody.substring(0, 200) },
+        post: { status: postResponse.status, body: postBody.substring(0, 200) }
+      }
+    });
+
+  } catch (error) {
+    console.log(`🧪 Webhook test failed:`, error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      upstream
+    });
+  }
 });
 
 // Handle React Router - send all requests to index.html
