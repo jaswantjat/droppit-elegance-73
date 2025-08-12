@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+Dockerfile*
+.dockerignore
+.git
+.gitignore
+.vscode
+.eslintcache
+.cache
+dist
+coverage
+**/*.local
+**/*.env
+*.env
+.env.*
+
