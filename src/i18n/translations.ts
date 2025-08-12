@@ -26,6 +26,11 @@ export interface Translations {
   remove: string;
   cancel: string;
   attachFiles: string;
+  uploadButton: string;
+
+  // Success popup
+  uploadSuccessTitle: string;
+  uploadSuccessMessage: string;
   
   // Status messages
   uploadSuccessful: string;
@@ -97,6 +102,11 @@ export const translations: Record<Language, Translations> = {
     remove: 'Eliminar',
     cancel: 'Cancelar',
     attachFiles: 'Adjuntar archivos',
+    uploadButton: 'Subir',
+
+    // Success popup
+    uploadSuccessTitle: 'Subida Exitosa',
+    uploadSuccessMessage: 'archivo(s) subido(s) exitosamente',
     
     // Status messages
     uploadSuccessful: 'Subida Exitosa | 100%',
@@ -167,6 +177,11 @@ export const translations: Record<Language, Translations> = {
     remove: 'Remove',
     cancel: 'Cancel',
     attachFiles: 'Attach files',
+    uploadButton: 'Upload',
+
+    // Success popup
+    uploadSuccessTitle: 'Upload Successful',
+    uploadSuccessMessage: 'file(s) uploaded successfully',
     
     // Status messages
     uploadSuccessful: 'Upload Successful | 100%',

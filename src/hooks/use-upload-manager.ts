@@ -35,7 +35,7 @@ const getDefaultConfig = async (): Promise<UploadManagerConfig> => {
   };
 };
 
-export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
+export const useUploadManager = (config?: Partial<UploadManagerConfig>) => {
   const [finalConfig, setFinalConfig] = useState<UploadManagerConfig>({
     maxFiles: 50,
     maxFileSize: 256 * 1024 * 1024,

@@ -6,6 +6,13 @@ import { Progress } from "@/components/ui/progress";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   File as FileIcon,
   Trash2,
   RotateCw,
@@ -23,6 +30,8 @@ import { LanguageSwitcher } from "./LanguageSwitcher";
 
 export default function UploadInterface() {
   const [isDragging, setIsDragging] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [uploadedCount, setUploadedCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { t, formatTime, formatFileSize } = useLanguage();
@@ -71,7 +80,7 @@ export default function UploadInterface() {
 
 
 
-  const handleAttachFiles = async () => {
+  const handleUpload = async () => {
     const results = await getResults();
     if (results.length === 0) {
       toast({
@@ -81,11 +90,9 @@ export default function UploadInterface() {
       });
       return;
     }
-    
-    toast({
-      title: t.filesAttached,
-      description: `${results.length} ${t.filesAttachedDescription}`,
-    });
+
+    setUploadedCount(results.length);
+    setShowSuccessDialog(true);
   };
 
   const getStatusIcon = (file: UploadFile) => {
@@ -289,21 +296,41 @@ export default function UploadInterface() {
           </div>
         )}
 
-        {/* Attach Files Button - only shows after successful uploads */}
+        {/* Upload Button - only shows after successful uploads */}
         {progress.completedFiles > 0 && (
           <div className="mt-6 flex justify-center">
             <Button
               variant="cta"
               size="lg"
-              onClick={handleAttachFiles}
+              onClick={handleUpload}
               disabled={progress.isUploading}
               className="px-6"
             >
-              {`${t.attachFiles} (${progress.completedFiles})`}
+              {`${t.uploadButton} (${progress.completedFiles})`}
             </Button>
           </div>
         )}
       </div>
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              {t.uploadSuccessTitle}
+            </DialogTitle>
+            <DialogDescription>
+              {`${uploadedCount} ${t.uploadSuccessMessage}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end">
+            <Button onClick={() => { clearAll(); setUploadedCount(0); setShowSuccessDialog(false); }}>
+              OK
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
