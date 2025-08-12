@@ -9,7 +9,6 @@ import {
   File as FileIcon,
   Trash2,
   RotateCw,
-  Link,
   CheckCircle2,
   XCircle,
   Upload,
@@ -24,7 +23,6 @@ import { LanguageSwitcher } from "./LanguageSwitcher";
 
 export default function UploadInterface() {
   const [isDragging, setIsDragging] = useState(false);
-  const [url, setUrl] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { t, formatTime, formatFileSize } = useLanguage();
@@ -71,40 +69,7 @@ export default function UploadInterface() {
     onFiles(e.dataTransfer.files);
   };
 
-  const addFromUrl = async () => {
-    if (!url.trim()) return;
-    
-    try {
-      const response = await fetch(url.trim(), { method: 'HEAD' });
-      const contentType = response.headers.get('content-type') || '';
-      const contentLength = response.headers.get('content-length');
-      
-      if (!config.allowedTypes.some(type => contentType.includes(type.split('/')[1]))) {
-        toast({
-          title: t.invalidFileType,
-          description: t.urlMustPointToImage,
-          variant: "destructive",
-        });
-        return;
-      }
 
-      const fileName = decodeURIComponent(url.split('/').pop() || 'image');
-      const fileSize = contentLength ? parseInt(contentLength) : 1024 * 1024; // Default 1MB
-      
-      // Create a mock file for URL uploads
-      const mockFile = new File([''], fileName, { type: contentType });
-      Object.defineProperty(mockFile, 'size', { value: fileSize });
-      
-      onFiles([mockFile] as any);
-      setUrl("");
-    } catch (error) {
-      toast({
-        title: t.invalidUrl,
-        description: t.couldNotFetchUrl,
-        variant: "destructive",
-      });
-    }
-  };
 
   const handleAttachFiles = async () => {
     const results = await getResults();
@@ -222,23 +187,7 @@ export default function UploadInterface() {
           </div>
         </div>
 
-        {/* Upload from URL */}
-        <div className="mt-4">
-          <div className="text-sm mb-2">{t.orUploadFromUrl}</div>
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Link className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60" size={16} />
-              <Input
-                aria-label="File URL"
-                placeholder={t.urlPlaceholder}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button variant="cta" size="md" onClick={addFromUrl}>{t.upload}</Button>
-          </div>
-        </div>
+
 
         {/* Upload Queue */}
         <div className="mt-6">
