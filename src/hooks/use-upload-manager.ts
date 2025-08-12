@@ -50,6 +50,7 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
   const [results, setResults] = useState<UploadResult[]>([]);
   const uploadQueueRef = useRef<UploadFile[]>([]);
   const activeUploadsRef = useRef<Set<string>>(new Set());
+  const autoUploadRef = useRef<boolean>(false);
 
   // Load configuration from server on mount
   useEffect(() => {
@@ -109,6 +110,16 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
           uploadedAt: new Date(),
         }]);
       }
+    }
+  }, [files]);
+
+  // ✅ AUTO-UPLOAD: Trigger upload when files are added
+  useEffect(() => {
+    if (autoUploadRef.current && files.some(f => f.status === 'pending')) {
+      autoUploadRef.current = false;
+      setTimeout(() => {
+        startBatchUpload();
+      }, 100);
     }
   }, [files]);
 
@@ -287,10 +298,8 @@ export const useUploadManager = (config: Partial<UploadManagerConfig> = {}) => {
       setFiles(prev => [...prev, ...newFiles]);
       uploadQueueRef.current = [...uploadQueueRef.current, ...newFiles];
 
-      // ✅ AUTO-UPLOAD: Start batch upload immediately when files are added
-      setTimeout(() => {
-        startBatchUpload();
-      }, 100);
+      // ✅ AUTO-UPLOAD: Set flag to trigger upload after state update
+      autoUploadRef.current = true;
     }
 
     return { addedFiles: newFiles.length, errors };
