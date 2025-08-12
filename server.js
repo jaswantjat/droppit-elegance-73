@@ -64,6 +64,7 @@ app.post('/upload', async (req, res) => {
       headers: {
         'content-type': contentType || 'application/octet-stream',
         'x-batch-upload': isBatchUpload ? 'true' : 'false', // Add batch indicator for webhook
+        'idempotency-key': req.headers['idempotency-key'] || '', // ✅ Forward idempotency key
       },
       body: req as any,
       signal: controller.signal,

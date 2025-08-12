@@ -37,10 +37,38 @@ export default function UploadInterface() {
     clearAll,
     getProgress,
     getResults,
+    startBatchUpload, // ✅ NEW: Explicit upload trigger
     config,
   } = useUploadManager();
 
   const progress = getProgress();
+
+  // ✅ NEW: Explicit upload handler - only triggered by button click
+  const handleUploadClick = useCallback(async () => {
+    const pendingFiles = files.filter(f => f.status === 'pending');
+    if (pendingFiles.length === 0) {
+      toast({
+        title: t.noFiles,
+        description: t.noFilesDescription,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await startBatchUpload();
+      toast({
+        title: t.uploadStarted || "Upload Started",
+        description: `${pendingFiles.length} files are being uploaded in a single batch`,
+      });
+    } catch (error) {
+      toast({
+        title: t.uploadFailed,
+        description: error instanceof Error ? error.message : "Upload failed",
+        variant: "destructive",
+      });
+    }
+  }, [files, startBatchUpload, toast, t]);
 
   const onFiles = useCallback((fileList: FileList | null) => {
     if (!fileList) return;
@@ -329,17 +357,34 @@ export default function UploadInterface() {
           </div>
         )}
 
-        {/* Action Button */}
-        <div className="mt-6 flex justify-center">
+        {/* Upload Action Buttons */}
+        <div className="mt-6 flex justify-center gap-3">
+          {/* ✅ NEW: Explicit Upload Button - triggers batch upload */}
           <Button
             variant="cta"
             size="lg"
-            onClick={handleAttachFiles}
-            disabled={progress.isUploading || files.length === 0}
+            onClick={handleUploadClick}
+            disabled={progress.isUploading || files.filter(f => f.status === 'pending').length === 0}
             className="px-8"
           >
-            {progress.isUploading ? t.uploading : `${t.attachFiles} (${progress.completedFiles})`}
+            {progress.isUploading
+              ? `${t.uploading}...`
+              : `${t.upload} ${files.filter(f => f.status === 'pending').length} Files`
+            }
           </Button>
+
+          {/* Attach Files Button - only shows after successful uploads */}
+          {progress.completedFiles > 0 && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={handleAttachFiles}
+              disabled={progress.isUploading}
+              className="px-6"
+            >
+              {`${t.attachFiles} (${progress.completedFiles})`}
+            </Button>
+          )}
         </div>
       </div>
     </div>
