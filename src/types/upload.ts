@@ -30,6 +30,8 @@ export interface UploadManagerConfig {
   allowedTypes: string[];
   concurrency: number;
   uploadEndpoint?: string;
+  enableBatching?: boolean; // Whether to enable batch uploads
+  batchSize?: number; // Number of files to batch together (default: 1)
 }
 
 export interface UploadProgress {

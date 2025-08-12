@@ -48,19 +48,56 @@ app.post('/upload', async (req, res) => {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    console.log(`📤 Proxying upload to: ${upstream}`);
+
+    // Check if this is a batch upload by examining the request
+    const contentType = req.headers['content-type'] || '';
+    const isBatchUpload = contentType.includes('multipart/form-data');
+
+    if (isBatchUpload) {
+      console.log(`📦 Batch upload detected`);
+    }
+
     const response = await fetch(upstream, {
       method: 'POST',
       // Forward content-type so boundary is preserved
-      headers: { 'content-type': req.headers['content-type'] as string || 'application/octet-stream' },
+      headers: {
+        'content-type': contentType || 'application/octet-stream',
+        'x-batch-upload': isBatchUpload ? 'true' : 'false', // Add batch indicator for webhook
+      },
       body: req as any,
       signal: controller.signal,
     });
 
-    const contentType = response.headers.get('content-type') || 'application/json';
+    const responseContentType = response.headers.get('content-type') || 'application/json';
     res.status(response.status);
-    res.setHeader('content-type', contentType);
+    res.setHeader('content-type', responseContentType);
     const text = await response.text();
-    res.send(text);
+
+    // For batch uploads, ensure we return a proper response format
+    if (isBatchUpload && response.ok) {
+      try {
+        const parsedResponse = JSON.parse(text);
+        // If the webhook doesn't return an array for batch uploads, create a compatible response
+        if (!Array.isArray(parsedResponse.results) && !Array.isArray(parsedResponse.files)) {
+          console.log(`📦 Converting single response to batch format`);
+          // Create a results array for batch compatibility
+          const results = [{
+            success: true,
+            url: parsedResponse.url || parsedResponse.file_url || parsedResponse.data?.url,
+            index: 0
+          }];
+          res.json({ ...parsedResponse, results });
+        } else {
+          res.send(text);
+        }
+      } catch (parseError) {
+        // If response is not JSON, send as-is
+        res.send(text);
+      }
+    } else {
+      res.send(text);
+    }
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       res.status(504).json({ error: 'Upstream timeout', message: 'Upload timed out' });
@@ -91,7 +128,9 @@ app.get('/api/config', (req, res) => {
     webhookUrl: '/upload',
     maxFileSize: process.env.MAX_FILE_SIZE || '268435456', // 256MB in bytes
     maxFiles: process.env.MAX_FILES || '50',
-    allowedTypes: (process.env.ALLOWED_TYPES || 'image/jpeg,image/jpg,image/png,image/webp,image/heic').split(',')
+    allowedTypes: (process.env.ALLOWED_TYPES || 'image/jpeg,image/jpg,image/png,image/webp,image/heic').split(','),
+    enableBatching: process.env.ENABLE_BATCHING !== 'false', // Enable by default
+    batchSize: parseInt(process.env.BATCH_SIZE || '5'), // Default batch size of 5
   });
 });
 
