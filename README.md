@@ -1,73 +1,85 @@
-# Welcome to your Lovable project
+# Bilingual Upload Interface
 
-## Project info
+A modern, robust file upload interface with bilingual support (Spanish/English) built with React, TypeScript, and Tailwind CSS.
 
-**URL**: https://lovable.dev/projects/630438eb-eacd-443c-a524-c20704bacbe5
+## 🌟 Features
 
-## How can I edit this code?
+### 🌍 **Bilingual Support**
+- **Spanish (Default)** and English languages
+- Persistent language preference
+- Complete UI translation including error messages
+- Easy language switching with dropdown menu
 
-There are several ways of editing your application.
+### 📤 **Robust File Upload**
+- **Drag & Drop**: Intuitive file uploading with visual feedback
+- **Real-time Progress**: Upload progress with ETA calculations
+- **Queue Management**: Concurrent uploads (3 simultaneous) with retry functionality
+- **File Validation**: Type and size validation with user-friendly error messages
+- **Webhook Integration**: Direct posting to Railway webhook endpoint
 
-**Use Lovable**
+### 🎨 **Modern UI**
+- **Clean Interface**: No popups - direct page interface
+- **Responsive Design**: Works seamlessly across all devices
+- **Visual Feedback**: Status indicators, progress bars, and animations
+- **Accessibility**: ARIA labels and keyboard navigation
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/630438eb-eacd-443c-a524-c20704bacbe5) and start prompting.
+### 🔧 **Technical Features**
+- **File Types**: Images only (JPG, JPEG, PNG, WebP, HEIC)
+- **File Limits**: 50 files per batch, 256MB per file
+- **Progress Tracking**: XMLHttpRequest with true upload progress
+- **Error Handling**: Comprehensive error handling with retry mechanism
+- **Production Ready**: Optimized build with security headers
 
-Changes made via Lovable will be committed automatically to this repo.
+## 🚀 Quick Start
 
-**Use your preferred IDE**
+### Development
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+```bash
+# Clone the repository
+git clone https://github.com/jaswantjat/droppit-elegance-73.git
+cd droppit-elegance-73
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+# Install dependencies
+npm install
 
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Open [http://localhost:8081](http://localhost:8081) in your browser.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Production
 
-**Use GitHub Codespaces**
+```bash
+# Build for production
+npm run build
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+# Start production server
+npm start
+```
 
-## What technologies are used for this project?
+## 🌐 Deployment
 
-This project is built with:
+### Railway (Recommended)
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app)
 
-## How can I deploy this project?
+1. **Connect Repository**: Link your GitHub repo to Railway
+2. **Set Environment Variables**:
+   ```bash
+   NODE_ENV=production
+   WEBHOOK_URL=https://primary-production-903a.up.railway.app/webhook/ce39975d-f592-43d2-9680-76dd8f26af23
+   ```
+3. **Deploy**: Railway automatically builds and deploys
 
-Simply open [Lovable](https://lovable.dev/projects/630438eb-eacd-443c-a524-c20704bacbe5) and click on Share -> Publish.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
 
-## Can I connect a custom domain to my Lovable project?
+## 🛠️ Tech Stack
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+- **Frontend**: React 18, TypeScript, Vite
+- **Styling**: Tailwind CSS, shadcn/ui components
+- **Internationalization**: Custom i18n system with React Context
+- **File Handling**: Axios with upload progress tracking
+- **Backend**: Express.js server for production
+- **State Management**: React hooks and context
+- **Icons**: Lucide React
