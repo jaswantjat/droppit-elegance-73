@@ -35,7 +35,7 @@ const getDefaultConfig = async (): Promise<UploadManagerConfig> => {
   };
 };
 
-export const useUploadManager = (config?: Partial<UploadManagerConfig>) => {
+export const useUploadManager = (config?: Partial<UploadManagerConfig>, onReset?: () => void) => {
   const [finalConfig, setFinalConfig] = useState<UploadManagerConfig>({
     maxFiles: 50,
     maxFileSize: 256 * 1024 * 1024,
@@ -123,7 +123,84 @@ export const useUploadManager = (config?: Partial<UploadManagerConfig>) => {
     }
   }, [files]);
 
-  // ✅ NEW: Single batch upload function - uploads ALL pending files in ONE request
+  // ✅ Individual file upload function - uploads ONE file per webhook call
+  const uploadSingleFile = useCallback(async (uploadFile: UploadFile): Promise<void> => {
+    const abortController = new AbortController();
+
+    // Update file to uploading status
+    setFiles(prev => prev.map(file =>
+      file.id === uploadFile.id
+        ? { ...file, status: 'uploading', abortController, startTime: Date.now() }
+        : file
+    ));
+
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadFile.file);
+      formData.append('filename', uploadFile.name);
+      formData.append('size', uploadFile.size.toString());
+      formData.append('type', uploadFile.type || 'application/octet-stream');
+      formData.append('path', 'ce39975d-f592-43d2-9680-76dd8f26af23');
+
+      console.log(`🚀 Starting individual upload: ${uploadFile.name}`);
+
+      const response = await axios.post(finalConfig.uploadEndpoint!, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Idempotency-Key': uploadFile.id,
+        },
+        signal: abortController.signal,
+        timeout: DEFAULT_UPLOAD_TIMEOUT_MS,
+        onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+          if (progressEvent.total) {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            updateFileProgress(uploadFile.id, progress);
+          }
+        },
+      });
+
+      console.log(`✅ Individual upload completed: ${uploadFile.name}`);
+
+      // Handle response
+      const result = response.data?.result || response.data;
+      const uploadedUrl = result?.url || result?.file_url || URL.createObjectURL(uploadFile.file);
+      updateFileStatus(uploadFile.id, 'success', undefined, uploadedUrl);
+
+    } catch (error: any) {
+      console.error(`❌ Upload failed for ${uploadFile.name}:`, error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+          headers: error.config?.headers
+        }
+      });
+
+      if (axios.isCancel(error)) {
+        updateFileStatus(uploadFile.id, 'cancelled');
+      } else if (error?.code === 'ECONNABORTED') {
+        updateFileStatus(uploadFile.id, 'error', 'Upload timed out');
+      } else if (error?.response?.status === 500) {
+        updateFileStatus(uploadFile.id, 'error', 'Server error - check backend connection');
+      } else if (error?.response?.status === 404) {
+        updateFileStatus(uploadFile.id, 'error', 'Upload endpoint not found');
+      } else if (error?.code === 'NETWORK_ERROR' || error?.code === 'ERR_NETWORK') {
+        updateFileStatus(uploadFile.id, 'error', 'Network error - check server connection');
+      } else {
+        const msg = error?.response?.data?.error || error?.response?.data?.message || (error instanceof Error ? error.message : 'Upload failed');
+        updateFileStatus(uploadFile.id, 'error', msg);
+      }
+    } finally {
+      activeUploadsRef.current.delete(uploadFile.id);
+    }
+  }, [finalConfig.uploadEndpoint, updateFileProgress, updateFileStatus]);
+
+  // ✅ Concurrency-limited upload function - uploads files individually with max 3 concurrent
   const startBatchUpload = useCallback(async (): Promise<void> => {
     const pendingFiles = files.filter(file => file.status === 'pending');
 
@@ -132,130 +209,32 @@ export const useUploadManager = (config?: Partial<UploadManagerConfig>) => {
       return;
     }
 
-    // Generate unique batch ID for idempotency
-    const batchId = crypto.randomUUID();
-    const abortController = new AbortController();
+    console.log(`🚀 Starting individual uploads: ${pendingFiles.length} files (max ${finalConfig.concurrency} concurrent)`);
 
-    // Update ALL pending files to uploading status
-    const fileIds = pendingFiles.map(f => f.id);
-    setFiles(prev => prev.map(file =>
-      fileIds.includes(file.id)
-        ? { ...file, status: 'uploading', abortController, startTime: Date.now() }
-        : file
-    ));
+    // Limit concurrency to 3 uploads at a time
+    const limit = finalConfig.concurrency || 3;
+    const queue = [...pendingFiles];
+    const running: Promise<void>[] = [];
 
-    try {
-      const formData = new FormData();
-
-      // ✅ Add ALL files to the SAME FormData (key insight from your diagnosis)
-      pendingFiles.forEach((uploadFile) => {
-        // Use 'file' as the field name for each file; many webhooks expect this
-        formData.append('file', uploadFile.file);
-      });
-
-      // Add batch metadata for idempotency and tracking
-      formData.append('batchId', batchId);
-      formData.append('fileCount', pendingFiles.length.toString());
-      formData.append('path', 'ce39975d-f592-43d2-9680-76dd8f26af23');
-
-      console.log(`🚀 Starting batch upload: ${pendingFiles.length} files, batchId: ${batchId}`);
-
-      // ✅ ONE single POST request for ALL files
-      const response = await axios.post(finalConfig.uploadEndpoint!, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          'Idempotency-Key': batchId, // ✅ Prevent duplicate requests
-        },
-        signal: abortController.signal,
-        timeout: DEFAULT_UPLOAD_TIMEOUT_MS,
-        onUploadProgress: (progressEvent: AxiosProgressEvent) => {
-          if (progressEvent.total) {
-            const overallProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            // Distribute progress across all files in the batch
-            pendingFiles.forEach(file => {
-              updateFileProgress(file.id, overallProgress);
-            });
-          }
-        },
-      });
-
-      console.log(`✅ Batch upload completed successfully`);
-
-      // Handle batch response
-      const results = response.data?.results || response.data?.files || [];
-
-      if (Array.isArray(results) && results.length === pendingFiles.length) {
-        // Handle individual file results
-        pendingFiles.forEach((file, index) => {
-          const result = results[index];
-          if (result && (result.success !== false)) {
-            const uploadedUrl = result.url || result.file_url || URL.createObjectURL(file.file);
-            updateFileStatus(file.id, 'success', undefined, uploadedUrl);
-          } else {
-            const error = result?.error || 'Upload failed';
-            updateFileStatus(file.id, 'error', error);
-          }
+    while (queue.length > 0 || running.length > 0) {
+      // Start new uploads up to the limit
+      while (running.length < limit && queue.length > 0) {
+        const file = queue.shift()!;
+        const uploadPromise = uploadSingleFile(file).finally(() => {
+          const index = running.indexOf(uploadPromise);
+          if (index >= 0) running.splice(index, 1);
         });
-      } else {
-        // Fallback: assume all files succeeded if we get a successful response
-        const baseUrl = response.data?.url || response.data?.file_url;
-        pendingFiles.forEach(file => {
-          const uploadedUrl = baseUrl || URL.createObjectURL(file.file);
-          updateFileStatus(file.id, 'success', undefined, uploadedUrl);
-        });
+        running.push(uploadPromise);
       }
 
-    } catch (error: any) {
-      console.error('❌ Batch upload failed:', error);
-
-      // Fallback: try uploading files one-by-one (some webhooks don't accept multi-file form)
-      try {
-        for (const file of pendingFiles) {
-          const perFileForm = new FormData();
-          perFileForm.append('file', file.file);
-          perFileForm.append('path', 'ce39975d-f592-43d2-9680-76dd8f26af23');
-
-          const idKey = `${batchId}:${file.id}`;
-          await axios.post(finalConfig.uploadEndpoint!, perFileForm, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-              'Idempotency-Key': idKey,
-            },
-            timeout: DEFAULT_UPLOAD_TIMEOUT_MS,
-            onUploadProgress: (evt: AxiosProgressEvent) => {
-              if (evt.total) {
-                const p = Math.round((evt.loaded * 100) / evt.total);
-                updateFileProgress(file.id, p);
-              }
-            },
-          }).then((resp) => {
-            const result = resp.data?.result || resp.data;
-            const uploadedUrl = result?.url || result?.file_url || URL.createObjectURL(file.file);
-            updateFileStatus(file.id, 'success', undefined, uploadedUrl);
-          }).catch((err) => {
-            const msg = err?.response?.data?.error || (err instanceof Error ? err.message : 'Upload failed');
-            updateFileStatus(file.id, 'error', msg);
-          });
-        }
-      } catch (fallbackErr) {
-        console.error('❌ Fallback single-file uploads failed:', fallbackErr);
-        pendingFiles.forEach(file => {
-          if (axios.isCancel(error)) {
-            updateFileStatus(file.id, 'cancelled');
-          } else if (error?.code === 'ECONNABORTED') {
-            updateFileStatus(file.id, 'error', 'Upload timed out');
-          } else {
-            updateFileStatus(file.id, 'error', error instanceof Error ? error.message : 'Upload failed');
-          }
-        });
+      // Wait for at least one upload to complete before starting more
+      if (running.length > 0) {
+        await Promise.race(running);
       }
-    } finally {
-      // Clean up active uploads tracking
-      pendingFiles.forEach(file => {
-        activeUploadsRef.current.delete(file.id);
-      });
     }
-  }, [files, finalConfig.uploadEndpoint, updateFileProgress, updateFileStatus]);
+
+    console.log(`✅ All individual uploads completed`);
+  }, [files, finalConfig.concurrency, uploadSingleFile]);
 
   // ❌ REMOVED: Individual uploadFile function that caused multiple webhook calls
   // ✅ REPLACED: With single startBatchUpload function
@@ -349,7 +328,12 @@ export const useUploadManager = (config?: Partial<UploadManagerConfig>) => {
     setResults([]);
     uploadQueueRef.current = [];
     activeUploadsRef.current.clear();
-  }, [files]);
+
+    // Reset file input if callback provided
+    if (onReset) {
+      onReset();
+    }
+  }, [files, onReset]);
 
   const getProgress = useCallback((): UploadProgress => {
     const totalFiles = files.length;

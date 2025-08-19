@@ -36,6 +36,13 @@ export default function UploadInterface() {
   const { toast } = useToast();
   const { t, formatTime, formatFileSize } = useLanguage();
 
+  // Reset file input to allow re-selecting the same files
+  const resetInput = () => {
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
+  };
+
   const {
     files,
     addFiles,
@@ -45,7 +52,7 @@ export default function UploadInterface() {
     getProgress,
     getResults,
     config,
-  } = useUploadManager();
+  } = useUploadManager(undefined, resetInput);
 
   const progress = getProgress();
 
@@ -70,7 +77,10 @@ export default function UploadInterface() {
         description: `${result.addedFiles} ${t.filesAddedDescription} - uploading automatically`,
       });
     }
-  }, [addFiles, toast, t]);
+
+    // Reset input to allow re-selecting the same files
+    resetInput();
+  }, [addFiles, toast, t, resetInput]);
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
